@@ -1,13 +1,28 @@
+import os
+import streamlit as st
 from src.embeddings import create_embeddings
 from src.vector_store import collection
 import ollama
 
+try:
+    from groq import Groq
+except ImportError:
+    Groq = None
 
-def ask_question_stream(question, selected_documents=None, chat_history=None):
+
+def ask_question_stream(question, selected_documents=None, chat_history=None, groq_api_key=None):
     """
-    RAG with streaming response for real-time word-by-word UI rendering.
-    Returns: (generator or str, list of source dicts)
+    RAG with streaming response. Supports both local Ollama and Cloud Groq API.
     """
+    # Check for Groq API key from parameter, secrets, or environment
+    if not groq_api_key:
+        try:
+            groq_api_key = st.secrets.get("GROQ_API_KEY", None)
+        except Exception:
+            groq_api_key = None
+    if not groq_api_key:
+        groq_api_key = os.environ.get("GROQ_API_KEY", None)
+
     # Handle general conversational queries / greetings cleanly
     q_clean = question.strip().lower()
     greetings = ["hi", "hello", "hey", "how can you help me", "how can u help me",
@@ -28,7 +43,7 @@ def ask_question_stream(question, selected_documents=None, chat_history=None):
     # Check if collection is empty
     if collection.count() == 0:
         def empty_generator():
-            yield "No documents found in the database. Please upload a PDF first."
+            yield "No documents found in the database. Please upload a PDF in the sidebar first."
         return empty_generator(), []
 
     where_filter = None
@@ -52,7 +67,7 @@ def ask_question_stream(question, selected_documents=None, chat_history=None):
     # Create embedding for search
     question_embedding = create_embeddings([search_query])[0]
 
-    # Retrieve top 4 most relevant chunks (optimized for speed & accuracy)
+    # Retrieve top 4 most relevant chunks
     n_fetch = min(4, collection.count())
     results = None
 
@@ -133,6 +148,29 @@ Instructions:
 --- Detailed Answer ---"""
 
     def stream_generator():
+        # 1. Try Groq Cloud API if key is provided
+        if groq_api_key and Groq:
+            try:
+                client = Groq(api_key=groq_api_key)
+                response = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[
+                        {"role": "system", "content": "You are a precise AI document assistant."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.2,
+                    max_tokens=800,
+                    stream=True
+                )
+                for chunk in response:
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        yield content
+                return
+            except Exception as e:
+                yield f"⚠️ Groq API Error: {str(e)}\n\nFalling back to local Ollama..."
+
+        # 2. Try Local Ollama
         try:
             stream = ollama.generate(
                 model="llama3.2",
@@ -147,15 +185,22 @@ Instructions:
             for chunk in stream:
                 yield chunk["response"]
         except Exception as e:
-            yield f"Error communicating with Ollama: {str(e)}. Please ensure Ollama is running (`ollama run llama3.2`)."
+            # Helpful error guide for Cloud Deployment
+            yield (
+                f"⚠️ **Could not connect to local Ollama:** `{str(e)}`\n\n"
+                "**Deploying on Streamlit Cloud?**\n"
+                "Streamlit Cloud does not have local Ollama installed. To enable instant AI answers on the cloud:\n"
+                "1. Get a **Free Groq API Key** in 30 seconds from [console.groq.com](https://console.groq.com/keys).\n"
+                "2. Enter your Groq API Key in the **Sidebar Settings** or in Streamlit Cloud Secrets (`GROQ_API_KEY`)."
+            )
 
     return stream_generator(), sources
 
 
-def ask_question(question, selected_documents=None, chat_history=None):
+def ask_question(question, selected_documents=None, chat_history=None, groq_api_key=None):
     """
     Synchronous fallback for tests and legacy callers.
     """
-    stream, sources = ask_question_stream(question, selected_documents, chat_history)
+    stream, sources = ask_question_stream(question, selected_documents, chat_history, groq_api_key)
     answer = "".join(list(stream))
     return answer, sources

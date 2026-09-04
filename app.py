@@ -264,7 +264,20 @@ with st.sidebar:
     total_vectors = collection.count() if collection else 0
     st.markdown(f"- **Indexed Documents:** `{len(indexed_files)}`")
     st.markdown(f"- **Total Chunks:** `{total_vectors}`")
-    st.markdown(f"- **LLM:** `Ollama / llama3.2`")
+    
+    # Cloud Deployment & LLM Settings
+    st.divider()
+    st.subheader("⚙️ Cloud / LLM Settings")
+    groq_api_key_input = st.text_input(
+        "🔑 Groq API Key (For Cloud)",
+        type="password",
+        value=os.environ.get("GROQ_API_KEY", ""),
+        help="Paste a free Groq API key from https://console.groq.com/keys to run 24/7 on Streamlit Cloud without local Ollama."
+    )
+    if groq_api_key_input:
+        st.markdown(f"- **Active LLM:** `Groq / Llama 3.3 (Cloud)`")
+    else:
+        st.markdown(f"- **Active LLM:** `Ollama / Llama 3.2 (Local)`")
 
     st.divider()
 
@@ -366,7 +379,8 @@ if prompt_input:
             stream_gen, sources = ask_question_stream(
                 prompt_input,
                 selected_documents=selected_docs,
-                chat_history=st.session_state.messages
+                chat_history=st.session_state.messages,
+                groq_api_key=groq_api_key_input
             )
             # Stream tokens live word-by-word like ChatGPT
             answer = st.write_stream(stream_gen)

@@ -3,4 +3,5 @@ pypdf
 chromadb
 sentence-transformers
 ollama
+groq
 python-dotenv
