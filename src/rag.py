@@ -190,23 +190,23 @@ Instructions:
                 except Exception:
                     available_models = []
 
-                # Select best high-throughput model
+                # Filter strictly for text LLMs (Llama, Gemma, DeepSeek)
+                chat_models = []
+                for m in available_models:
+                    m_lower = m.lower()
+                    if any(k in m_lower for k in ['llama', 'gemma', 'deepseek']) and not any(x in m_lower for x in ['canopy', 'orpheus', 'playht', 'audio', 'tts', 'guard']):
+                        chat_models.append(m)
+
+                # Match best model by substring preference
                 chosen_model = None
-                for preference in [
-                    "llama-3.3-70b-versatile",
-                    "llama-3.1-70b-versatile",
-                    "llama-3.1-8b-instant",
-                    "gemma2-9b-it",
-                    "deepseek-r1-distill-llama-70b"
-                ]:
-                    if preference in available_models:
-                        chosen_model = preference
+                for pref in ["llama-3.3", "llama-3.1", "70b", "8b", "llama", "gemma"]:
+                    matches = [m for m in chat_models if pref in m.lower()]
+                    if matches:
+                        chosen_model = matches[0]
                         break
 
                 if not chosen_model:
-                    # Filter for any llama or gemma model
-                    llama_models = [m for m in available_models if "llama" in m.lower() or "gemma" in m.lower()]
-                    chosen_model = llama_models[0] if llama_models else (available_models[0] if available_models else "llama-3.1-70b-versatile")
+                    chosen_model = chat_models[0] if chat_models else "llama-3.1-70b-versatile"
 
                 stream = client.chat.completions.create(
                     model=chosen_model,
