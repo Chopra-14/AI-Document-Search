@@ -211,7 +211,7 @@ Instructions:
                         {"role": "user", "content": prompt}
                     ],
                     temperature=0.2,
-                    max_tokens=1000,
+                    max_tokens=512,
                     stream=True
                 )
                 for chunk in response:
