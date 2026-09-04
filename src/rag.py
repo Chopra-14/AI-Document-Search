@@ -125,13 +125,13 @@ def ask_question_stream(question, selected_documents=None, chat_history=None, ap
 
     context_str = "\n\n".join(formatted_contexts)
 
-    # Conversation history snippet
+    # Conversation history snippet (compact to save context tokens)
     history_str = ""
     if chat_history:
         history_lines = []
-        for msg in chat_history[-4:]:
+        for msg in chat_history[-2:]:
             role = "User" if msg["role"] == "user" else "Assistant"
-            history_lines.append(f"{role}: {msg['content']}")
+            history_lines.append(f"{role}: {msg['content'][:250]}")
         if history_lines:
             history_str = "\n".join(history_lines)
 
@@ -139,17 +139,16 @@ def ask_question_stream(question, selected_documents=None, chat_history=None, ap
 Answer the user's question clearly, thoroughly, and accurately based ONLY on the provided document context.
 
 Instructions:
-- Use conversation history to understand follow-up questions (e.g. "expand", "for 7 marks").
+- Use conversation history to understand follow-up questions.
 - For 2-mark questions: 1-2 sentence concise answer.
 - For 5-mark / 7-mark / detailed questions: provide structured points with bold headings.
-- Use clear bullet points and clean formatting.
 - Rely STRICTLY on the document context provided below.
 
 --- Conversation History ---
 {history_str if history_str else "None"}
 
 --- Document Context ---
-{context_str}
+{context_str[:3000]}
 
 --- User Question ---
 {question}
@@ -164,7 +163,7 @@ Instructions:
                 headers = {"Content-Type": "application/json"}
                 payload = {
                     "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1000}
+                    "generationConfig": {"temperature": 0.2, "maxOutputTokens": 800}
                 }
                 req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
                 with urllib.request.urlopen(req, timeout=30) as resp:
@@ -186,24 +185,24 @@ Instructions:
                 except Exception:
                     all_models = []
 
-                # Select best available model dynamically
-                # Select best available large-context model dynamically
+                # Prioritize large 128k context models on Groq
                 selected_model = None
                 for candidate in [
                     "llama-3.3-70b-versatile",
                     "llama-3.1-70b-versatile",
-                    "llama3-8b-8192",
+                    "llama-3.1-8b-instant",
                     "gemma2-9b-it",
-                    "deepseek-r1-distill-llama-70b"
+                    "llama3-70b-8192",
+                    "llama3-8b-8192"
                 ]:
                     if candidate in all_models:
                         selected_model = candidate
                         break
 
                 if not selected_model:
-                    # Filter out tiny 1b/3b preview models that have 2k context limits
-                    large_models = [m for m in all_models if ("llama-3.3" in m or "llama-3.1" in m or "8b" in m or "gemma" in m) and "1b" not in m and "3b" not in m]
-                    selected_model = large_models[0] if large_models else (all_models[0] if all_models else "llama-3.3-70b-versatile")
+                    # Fallback to any 70b, llama, or first available active model
+                    llama_models = [m for m in all_models if "70b" in m.lower() or "llama" in m.lower() or "gemma" in m.lower()]
+                    selected_model = llama_models[0] if llama_models else (all_models[0] if all_models else "llama-3.3-70b-versatile")
 
                 response = client.chat.completions.create(
                     model=selected_model,
@@ -212,7 +211,7 @@ Instructions:
                         {"role": "user", "content": prompt}
                     ],
                     temperature=0.2,
-                    max_tokens=512,
+                    max_tokens=600,
                     stream=True
                 )
                 for chunk in response:
