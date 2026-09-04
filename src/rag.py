@@ -179,27 +179,21 @@ Instructions:
             try:
                 client = Groq(api_key=api_key)
                 
-                # Try verified Groq models: primary 70B, fallback to 8B
-                for model_id in ["llama-3.3-70b-versatile", "llama3-8b-8192"]:
-                    try:
-                        stream = client.chat.completions.create(
-                            model=model_id,
-                            messages=[
-                                {"role": "user", "content": prompt}
-                            ],
-                            temperature=0.2,
-                            stream=True
-                        )
-                        for chunk in stream:
-                            if chunk.choices and len(chunk.choices) > 0:
-                                delta_text = chunk.choices[0].delta.content
-                                if delta_text:
-                                    yield delta_text
-                        return
-                    except Exception as m_err:
-                        if model_id == "llama3-8b-8192" or "401" in str(m_err):
-                            raise m_err
-                        continue
+                # Call official Groq Llama 3.3 70B model directly
+                stream = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.2,
+                    stream=True
+                )
+                for chunk in stream:
+                    if chunk.choices and len(chunk.choices) > 0:
+                        delta_text = chunk.choices[0].delta.content
+                        if delta_text:
+                            yield delta_text
+                return
             except Exception as e:
                 err_str = str(e)
                 if "401" in err_str or "invalid_api_key" in err_str:
