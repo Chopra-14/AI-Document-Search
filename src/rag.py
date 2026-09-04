@@ -1,4 +1,6 @@
 import os
+import json
+import urllib.request
 import streamlit as st
 from src.embeddings import create_embeddings
 from src.vector_store import collection
@@ -10,18 +12,25 @@ except ImportError:
     Groq = None
 
 
-def ask_question_stream(question, selected_documents=None, chat_history=None, groq_api_key=None):
+def ask_question_stream(question, selected_documents=None, chat_history=None, api_key=None, provider="auto"):
     """
-    RAG with streaming response. Supports both local Ollama and Cloud Groq API.
+    RAG with streaming response.
+    Supports:
+    1. Groq Cloud API (Llama 3.3 70B / Llama 3.1 8B)
+    2. Google Gemini Cloud API (Gemini 1.5/2.0 Flash)
+    3. Local Ollama (Llama 3.2)
     """
-    # Check for Groq API key from parameter, secrets, or environment
-    if not groq_api_key:
+    # 1. Resolve API key if not explicitly passed
+    if not api_key:
         try:
-            groq_api_key = st.secrets.get("GROQ_API_KEY", None)
+            api_key = st.secrets.get("GROQ_API_KEY", None) or st.secrets.get("GEMINI_API_KEY", None)
         except Exception:
-            groq_api_key = None
-    if not groq_api_key:
-        groq_api_key = os.environ.get("GROQ_API_KEY", None)
+            api_key = None
+    if not api_key:
+        api_key = os.environ.get("GROQ_API_KEY", None) or os.environ.get("GEMINI_API_KEY", None)
+
+    if api_key:
+        api_key = str(api_key).strip().strip("'\"")
 
     # Handle general conversational queries / greetings cleanly
     q_clean = question.strip().lower()
@@ -147,48 +156,71 @@ Instructions:
 
 --- Detailed Answer ---"""
 
-    # Sanitize Groq API Key
-    if groq_api_key:
-        groq_api_key = str(groq_api_key).strip().strip("'\"")
-        if not groq_api_key or len(groq_api_key) < 5:
-            groq_api_key = None
-
     def stream_generator():
-        # 1. Try Groq Cloud API if key is provided
-        if groq_api_key and Groq:
+        # Case 1: Google Gemini API (Key starts with AIzaSy...)
+        if api_key and (api_key.startswith("AIzaSy") or provider == "gemini"):
             try:
-                client = Groq(api_key=groq_api_key)
-                response = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[
-                        {"role": "system", "content": "You are a precise AI document assistant."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.2,
-                    max_tokens=800,
-                    stream=True
-                )
-                for chunk in response:
-                    content = chunk.choices[0].delta.content
-                    if content:
-                        yield content
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+                headers = {"Content-Type": "application/json"}
+                payload = {
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1000}
+                }
+                req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    resp_data = json.loads(resp.read().decode("utf-8"))
+                    text = resp_data["candidates"][0]["content"]["parts"][0]["text"]
+                    yield text
                 return
             except Exception as e:
-                err_msg = str(e)
-                if "401" in err_msg or "invalid_api_key" in err_msg:
-                    yield (
-                        "🔑 **Invalid Groq API Key (401 Error)**\n\n"
-                        "The Groq API key provided was not recognized.\n\n"
-                        "**How to get a free working key:**\n"
-                        "1. Open [console.groq.com/keys](https://console.groq.com/keys)\n"
-                        "2. Click **Create API Key** and copy the full key (starts with `gsk_...`)\n"
-                        "3. Paste it into the **🔑 Groq API Key** box in the sidebar!"
-                    )
-                else:
-                    yield f"⚠️ **Groq API Error:** {err_msg}"
-                return
+                yield f"⚠️ **Google Gemini API Error:** `{str(e)}`\n\n"
 
-        # 2. Try Local Ollama (when running locally without Groq key)
+        # Case 2: Groq Cloud API (Key starts with gsk_...)
+        if api_key and Groq:
+            # Try multiple model variants in case of tier quotas
+            models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192", "mixtral-8x7b-32768"]
+            last_err = None
+            for model_id in models_to_try:
+                try:
+                    client = Groq(api_key=api_key)
+                    response = client.chat.completions.create(
+                        model=model_id,
+                        messages=[
+                            {"role": "system", "content": "You are a precise AI document assistant."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=0.2,
+                        max_tokens=1000,
+                        stream=True
+                    )
+                    for chunk in response:
+                        content = chunk.choices[0].delta.content
+                        if content:
+                            yield content
+                    return
+                except Exception as e:
+                    last_err = e
+                    if "401" in str(e) or "invalid_api_key" in str(e):
+                        # Stop immediately on bad authentication
+                        break
+                    continue
+
+            err_str = str(last_err) if last_err else "Authentication failed"
+            if "401" in err_str or "invalid_api_key" in err_str:
+                masked_key = f"{api_key[:6]}...{api_key[-4:]}" if len(api_key) > 10 else f"`{api_key}` (Too short)"
+                yield (
+                    f"🔑 **Groq API Authentication Error (401)**\n\n"
+                    f"- **Key Received:** `{masked_key}` (Length: {len(api_key)} chars)\n\n"
+                    "The key was rejected by Groq. Please make sure:\n"
+                    "1. Go to **[console.groq.com/keys](https://console.groq.com/keys)**\n"
+                    "2. Click **Create API Key** and copy the **entire key** immediately.\n"
+                    "3. Paste it directly into the **`🔑 Cloud API Key`** box in the sidebar without spaces."
+                )
+            else:
+                yield f"⚠️ **Groq API Error:** `{err_str}`"
+            return
+
+        # Case 3: Local Ollama (when running on localhost without cloud key)
         try:
             stream = ollama.generate(
                 model="llama3.2",
@@ -203,22 +235,21 @@ Instructions:
             for chunk in stream:
                 yield chunk["response"]
         except Exception as e:
-            # Helpful error guide for Cloud Deployment
             yield (
                 f"⚠️ **Could not connect to local Ollama:** `{str(e)}`\n\n"
-                "**Deploying on Streamlit Cloud?**\n"
+                "**Running on Streamlit Cloud?**\n"
                 "Streamlit Cloud does not have local Ollama installed. To enable instant AI answers on the cloud:\n\n"
-                "1. Get a **Free Groq API Key** in 30 seconds from [console.groq.com/keys](https://console.groq.com/keys).\n"
-                "2. Paste your key (starts with `gsk_...`) in the **Sidebar Settings**!"
+                "1. Get a **Free Cloud API Key** from **[console.groq.com/keys](https://console.groq.com/keys)** (starts with `gsk_...`) or Google AI Studio (starts with `AIzaSy...`).\n"
+                "2. Paste it in the **Sidebar Settings**!"
             )
 
     return stream_generator(), sources
 
 
-def ask_question(question, selected_documents=None, chat_history=None, groq_api_key=None):
+def ask_question(question, selected_documents=None, chat_history=None, api_key=None):
     """
     Synchronous fallback for tests and legacy callers.
     """
-    stream, sources = ask_question_stream(question, selected_documents, chat_history, groq_api_key)
+    stream, sources = ask_question_stream(question, selected_documents, chat_history, api_key)
     answer = "".join(list(stream))
     return answer, sources

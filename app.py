@@ -268,14 +268,25 @@ with st.sidebar:
     # Cloud Deployment & LLM Settings
     st.divider()
     st.subheader("⚙️ Cloud / LLM Settings")
-    groq_api_key_input = st.text_input(
-        "🔑 Groq API Key (For Cloud)",
+    
+    default_key = ""
+    try:
+        default_key = st.secrets.get("GROQ_API_KEY", "") or st.secrets.get("GEMINI_API_KEY", "")
+    except Exception:
+        default_key = os.environ.get("GROQ_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
+
+    cloud_api_key_input = st.text_input(
+        "🔑 Cloud API Key (Groq or Gemini)",
         type="password",
-        value=os.environ.get("GROQ_API_KEY", ""),
-        help="Paste a free Groq API key from https://console.groq.com/keys to run 24/7 on Streamlit Cloud without local Ollama."
+        value=default_key,
+        key="cloud_api_key_state",
+        help="Paste your free Groq API key (starts with gsk_...) or Google Gemini key (starts with AIzaSy...)."
     )
-    if groq_api_key_input:
-        st.markdown(f"- **Active LLM:** `Groq / Llama 3.3 (Cloud)`")
+    if cloud_api_key_input:
+        if cloud_api_key_input.startswith("AIzaSy"):
+            st.markdown(f"- **Active LLM:** `Gemini Flash (Cloud)`")
+        else:
+            st.markdown(f"- **Active LLM:** `Groq / Llama 3.3 (Cloud)`")
     else:
         st.markdown(f"- **Active LLM:** `Ollama / Llama 3.2 (Local)`")
 
@@ -380,7 +391,7 @@ if prompt_input:
                 prompt_input,
                 selected_documents=selected_docs,
                 chat_history=st.session_state.messages,
-                groq_api_key=groq_api_key_input
+                api_key=cloud_api_key_input
             )
             # Stream tokens live word-by-word like ChatGPT
             answer = st.write_stream(stream_gen)
