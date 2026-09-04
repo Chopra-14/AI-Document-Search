@@ -179,8 +179,8 @@ Instructions:
             try:
                 client = Groq(api_key=api_key)
                 
-                # Try primary 70b model, fallback to 8b if rate-limited
-                for model_id in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+                # Try verified Groq models: primary 70B, fallback to 8B
+                for model_id in ["llama-3.3-70b-versatile", "llama3-8b-8192"]:
                     try:
                         stream = client.chat.completions.create(
                             model=model_id,
@@ -197,7 +197,7 @@ Instructions:
                                     yield delta_text
                         return
                     except Exception as m_err:
-                        if model_id == "llama-3.1-8b-instant" or "401" in str(m_err):
+                        if model_id == "llama3-8b-8192" or "401" in str(m_err):
                             raise m_err
                         continue
             except Exception as e:
