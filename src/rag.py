@@ -178,42 +178,45 @@ Instructions:
         if api_key and Groq:
             try:
                 client = Groq(api_key=api_key)
-                
-                # Active supported Groq models
-                active_models = [
-                    "llama-3.3-70b-versatile",
-                    "deepseek-r1-distill-llama-70b",
-                    "llama-3.1-8b-instant"
+
+                # Fetch exact models available to THIS specific Groq key
+                try:
+                    all_account_models = [m.id for m in client.models.list().data]
+                except Exception as e:
+                    all_account_models = []
+
+                # Filter for valid text chat models (exclude audio/safety tools)
+                valid_chat_models = [
+                    m for m in all_account_models
+                    if not any(x in m.lower() for x in ['whisper', 'guard', 'embed', 'tts', 'moderation', 'canopy', 'orpheus'])
                 ]
 
-                errors_log = {}
-                for model_id in active_models:
-                    try:
-                        stream = client.chat.completions.create(
-                            model=model_id,
-                            messages=[
-                                {"role": "user", "content": prompt}
-                            ],
-                            temperature=0.2,
-                            max_tokens=400,
-                            stream=True
-                        )
-                        for chunk in stream:
-                            if chunk.choices and len(chunk.choices) > 0:
-                                delta_text = chunk.choices[0].delta.content
-                                if delta_text:
-                                    yield delta_text
-                        return
-                    except Exception as model_err:
-                        err_text = str(model_err)
-                        errors_log[model_id] = err_text
-                        if "401" in err_text or "invalid_api_key" in err_text:
-                            raise model_err
-                        continue
+                if not valid_chat_models:
+                    yield f"⚠️ **No text chat models found on your Groq key.**\n\nModels returned by Groq: `{all_account_models}`"
+                    return
 
-                # If all models failed, display the exact error from the primary model
-                main_error = errors_log.get("llama-3.3-70b-versatile", str(errors_log))
-                yield f"⚠️ **Groq API Error (`llama-3.3-70b-versatile`):** `{main_error}`"
+                # Choose best model directly from what the user's account actually has
+                chosen_model = valid_chat_models[0]
+                for pref in ["llama", "deepseek", "qwen", "mistral", "gemma"]:
+                    matches = [m for m in valid_chat_models if pref in m.lower()]
+                    if matches:
+                        chosen_model = matches[0]
+                        break
+
+                stream = client.chat.completions.create(
+                    model=chosen_model,
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.2,
+                    max_tokens=400,
+                    stream=True
+                )
+                for chunk in stream:
+                    if chunk.choices and len(chunk.choices) > 0:
+                        delta_text = chunk.choices[0].delta.content
+                        if delta_text:
+                            yield delta_text
                 return
             except Exception as e:
                 err_str = str(e)
