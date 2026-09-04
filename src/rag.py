@@ -177,47 +177,63 @@ Instructions:
 
         # Case 2: Groq Cloud API (Key starts with gsk_...)
         if api_key and Groq:
-            # Active, official Groq models
-            models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
-            last_err = None
-            for model_id in models_to_try:
-                try:
-                    client = Groq(api_key=api_key)
-                    response = client.chat.completions.create(
-                        model=model_id,
-                        messages=[
-                            {"role": "system", "content": "You are a precise AI document assistant."},
-                            {"role": "user", "content": prompt}
-                        ],
-                        temperature=0.2,
-                        max_tokens=1000,
-                        stream=True
-                    )
-                    for chunk in response:
-                        content = chunk.choices[0].delta.content
-                        if content:
-                            yield content
-                    return
-                except Exception as e:
-                    last_err = e
-                    if "401" in str(e) or "invalid_api_key" in str(e):
-                        break
-                    continue
+            try:
+                client = Groq(api_key=api_key)
 
-            err_str = str(last_err) if last_err else "Authentication failed"
-            if "401" in err_str or "invalid_api_key" in err_str:
-                masked_key = f"{api_key[:6]}...{api_key[-4:]}" if len(api_key) > 10 else f"`{api_key}` (Too short)"
-                yield (
-                    f"🔑 **Groq API Authentication Error (401)**\n\n"
-                    f"- **Key Received:** `{masked_key}` (Length: {len(api_key)} chars)\n\n"
-                    "The key was rejected by Groq. Please make sure:\n"
-                    "1. Go to **[console.groq.com/keys](https://console.groq.com/keys)**\n"
-                    "2. Click **Create API Key** and copy the **entire key** immediately.\n"
-                    "3. Paste it directly into the **`🔑 Cloud API Key`** box in the sidebar without spaces."
+                # Dynamically discover active models from user's account
+                try:
+                    all_models = [m.id for m in client.models.list().data if getattr(m, 'active', True)]
+                except Exception:
+                    all_models = []
+
+                # Select best available model dynamically
+                selected_model = None
+                for candidate in [
+                    "llama-3.3-70b-versatile",
+                    "llama-3.1-70b-versatile",
+                    "llama-3.2-3b-preview",
+                    "llama-3.2-1b-preview",
+                    "gemma2-9b-it",
+                    "llama3-8b-8192"
+                ]:
+                    if candidate in all_models:
+                        selected_model = candidate
+                        break
+
+                if not selected_model:
+                    llama_models = [m for m in all_models if "llama" in m.lower() or "gemma" in m.lower()]
+                    selected_model = llama_models[0] if llama_models else (all_models[0] if all_models else "llama-3.3-70b-versatile")
+
+                response = client.chat.completions.create(
+                    model=selected_model,
+                    messages=[
+                        {"role": "system", "content": "You are a precise AI document assistant."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.2,
+                    max_tokens=1000,
+                    stream=True
                 )
-            else:
-                yield f"⚠️ **Groq API Error:** `{err_str}`"
-            return
+                for chunk in response:
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        yield content
+                return
+            except Exception as e:
+                err_str = str(e)
+                if "401" in err_str or "invalid_api_key" in err_str:
+                    masked_key = f"{api_key[:6]}...{api_key[-4:]}" if len(api_key) > 10 else f"`{api_key}` (Too short)"
+                    yield (
+                        f"🔑 **Groq API Authentication Error (401)**\n\n"
+                        f"- **Key Received:** `{masked_key}` (Length: {len(api_key)} chars)\n\n"
+                        "The key was rejected by Groq. Please make sure:\n"
+                        "1. Go to **[console.groq.com/keys](https://console.groq.com/keys)**\n"
+                        "2. Click **Create API Key** and copy the **entire key** immediately.\n"
+                        "3. Paste it directly into the **`🔑 Cloud API Key`** box in the sidebar without spaces."
+                    )
+                else:
+                    yield f"⚠️ **Groq API Error:** `{err_str}`"
+                return
 
         # Case 3: Local Ollama (when running on localhost without cloud key)
         try:
