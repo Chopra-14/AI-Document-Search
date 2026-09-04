@@ -179,50 +179,40 @@ Instructions:
             try:
                 client = Groq(api_key=api_key)
                 
-                # Fetch live models list directly from Groq for this account
-                available_models = []
-                try:
-                    for m in client.models.list().data:
-                        m_id = getattr(m, 'id', '')
-                        # Exclude low-rate-limit preview models, audio, and safety filters
-                        if m_id and not any(x in m_id.lower() for x in ['whisper', 'guard', 'embed', 'tts', 'moderation', 'qwen']):
-                            available_models.append(m_id)
-                except Exception:
-                    available_models = []
+                # Active supported Groq models with automatic fallback
+                active_models = [
+                    "llama-3.3-70b-versatile",
+                    "deepseek-r1-distill-llama-70b",
+                    "llama-3.1-8b-instant",
+                    "gemma2-9b-it"
+                ]
 
-                # Filter strictly for text LLMs (Llama, Gemma, DeepSeek)
-                chat_models = []
-                for m in available_models:
-                    m_lower = m.lower()
-                    if any(k in m_lower for k in ['llama', 'gemma', 'deepseek']) and not any(x in m_lower for x in ['canopy', 'orpheus', 'playht', 'audio', 'tts', 'guard']):
-                        chat_models.append(m)
+                last_error = None
+                for model_id in active_models:
+                    try:
+                        stream = client.chat.completions.create(
+                            model=model_id,
+                            messages=[
+                                {"role": "user", "content": prompt}
+                            ],
+                            temperature=0.2,
+                            max_tokens=400,
+                            stream=True
+                        )
+                        for chunk in stream:
+                            if chunk.choices and len(chunk.choices) > 0:
+                                delta_text = chunk.choices[0].delta.content
+                                if delta_text:
+                                    yield delta_text
+                        return
+                    except Exception as model_err:
+                        last_error = model_err
+                        if "401" in str(model_err) or "invalid_api_key" in str(model_err):
+                            raise model_err
+                        continue
 
-                # Match best model by substring preference
-                chosen_model = None
-                for pref in ["llama-3.3", "llama-3.1", "70b", "8b", "llama", "gemma"]:
-                    matches = [m for m in chat_models if pref in m.lower()]
-                    if matches:
-                        chosen_model = matches[0]
-                        break
-
-                if not chosen_model:
-                    chosen_model = chat_models[0] if chat_models else "llama-3.1-70b-versatile"
-
-                stream = client.chat.completions.create(
-                    model=chosen_model,
-                    messages=[
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.2,
-                    max_tokens=400,
-                    stream=True
-                )
-                for chunk in stream:
-                    if chunk.choices and len(chunk.choices) > 0:
-                        delta_text = chunk.choices[0].delta.content
-                        if delta_text:
-                            yield delta_text
-                return
+                if last_error:
+                    raise last_error
             except Exception as e:
                 err_str = str(e)
                 if "401" in err_str or "invalid_api_key" in err_str:
