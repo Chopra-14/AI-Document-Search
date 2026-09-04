@@ -178,44 +178,28 @@ Instructions:
         if api_key and Groq:
             try:
                 client = Groq(api_key=api_key)
-
-                # Preferred 128k context models on Groq
-                for model_id in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it"]:
+                
+                # Try primary 70b model, fallback to 8b if rate-limited
+                for model_id in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
                     try:
-                        response = client.chat.completions.create(
+                        stream = client.chat.completions.create(
                             model=model_id,
                             messages=[
-                                {"role": "system", "content": "You are a precise AI document assistant."},
                                 {"role": "user", "content": prompt}
                             ],
                             temperature=0.2,
                             stream=True
                         )
-                        for chunk in response:
-                            content = chunk.choices[0].delta.content
-                            if content:
-                                yield content
+                        for chunk in stream:
+                            if chunk.choices and len(chunk.choices) > 0:
+                                delta_text = chunk.choices[0].delta.content
+                                if delta_text:
+                                    yield delta_text
                         return
-                    except Exception as model_err:
-                        if "401" in str(model_err) or "invalid_api_key" in str(model_err):
-                            raise model_err
+                    except Exception as m_err:
+                        if model_id == "llama-3.1-8b-instant" or "401" in str(m_err):
+                            raise m_err
                         continue
-                raise Exception("Could not complete request with available Groq models.")
-            except Exception as e:
-                err_str = str(e)
-                if "401" in err_str or "invalid_api_key" in err_str:
-                    masked_key = f"{api_key[:6]}...{api_key[-4:]}" if len(api_key) > 10 else f"`{api_key}` (Too short)"
-                    yield (
-                        f"🔑 **Groq API Authentication Error (401)**\n\n"
-                        f"- **Key Received:** `{masked_key}` (Length: {len(api_key)} chars)\n\n"
-                        "The key was rejected by Groq. Please make sure:\n"
-                        "1. Go to **[console.groq.com/keys](https://console.groq.com/keys)**\n"
-                        "2. Click **Create API Key** and copy the **entire key** immediately.\n"
-                        "3. Paste it directly into the **`🔑 Cloud API Key`** box in the sidebar without spaces."
-                    )
-                else:
-                    yield f"⚠️ **Groq API Error:** `{err_str}`"
-                return
             except Exception as e:
                 err_str = str(e)
                 if "401" in err_str or "invalid_api_key" in err_str:
