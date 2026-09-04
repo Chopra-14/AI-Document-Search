@@ -184,20 +184,19 @@ Instructions:
                 try:
                     for m in client.models.list().data:
                         m_id = getattr(m, 'id', '')
-                        if m_id and not any(x in m_id.lower() for x in ['whisper', 'guard', 'embed', 'tts', 'moderation']):
+                        # Exclude low-rate-limit preview models, audio, and safety filters
+                        if m_id and not any(x in m_id.lower() for x in ['whisper', 'guard', 'embed', 'tts', 'moderation', 'qwen']):
                             available_models.append(m_id)
                 except Exception:
                     available_models = []
 
-                # Select best available model from Groq's active list
+                # Select best high-throughput model
                 chosen_model = None
                 for preference in [
                     "llama-3.3-70b-versatile",
                     "llama-3.1-70b-versatile",
                     "llama-3.1-8b-instant",
-                    "llama3-70b-8192",
                     "gemma2-9b-it",
-                    "qwen/qwen-2.5-32b",
                     "deepseek-r1-distill-llama-70b"
                 ]:
                     if preference in available_models:
@@ -205,7 +204,9 @@ Instructions:
                         break
 
                 if not chosen_model:
-                    chosen_model = available_models[0] if available_models else "llama-3.1-70b-versatile"
+                    # Filter for any llama or gemma model
+                    llama_models = [m for m in available_models if "llama" in m.lower() or "gemma" in m.lower()]
+                    chosen_model = llama_models[0] if llama_models else (available_models[0] if available_models else "llama-3.1-70b-versatile")
 
                 stream = client.chat.completions.create(
                     model=chosen_model,
@@ -213,6 +214,7 @@ Instructions:
                         {"role": "user", "content": prompt}
                     ],
                     temperature=0.2,
+                    max_tokens=400,
                     stream=True
                 )
                 for chunk in stream:
