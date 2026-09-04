@@ -179,15 +179,14 @@ Instructions:
             try:
                 client = Groq(api_key=api_key)
                 
-                # Active supported Groq models with automatic fallback
+                # Active supported Groq models
                 active_models = [
                     "llama-3.3-70b-versatile",
                     "deepseek-r1-distill-llama-70b",
-                    "llama-3.1-8b-instant",
-                    "gemma2-9b-it"
+                    "llama-3.1-8b-instant"
                 ]
 
-                last_error = None
+                errors_log = {}
                 for model_id in active_models:
                     try:
                         stream = client.chat.completions.create(
@@ -206,13 +205,16 @@ Instructions:
                                     yield delta_text
                         return
                     except Exception as model_err:
-                        last_error = model_err
-                        if "401" in str(model_err) or "invalid_api_key" in str(model_err):
+                        err_text = str(model_err)
+                        errors_log[model_id] = err_text
+                        if "401" in err_text or "invalid_api_key" in err_text:
                             raise model_err
                         continue
 
-                if last_error:
-                    raise last_error
+                # If all models failed, display the exact error from the primary model
+                main_error = errors_log.get("llama-3.3-70b-versatile", str(errors_log))
+                yield f"⚠️ **Groq API Error (`llama-3.3-70b-versatile`):** `{main_error}`"
+                return
             except Exception as e:
                 err_str = str(e)
                 if "401" in err_str or "invalid_api_key" in err_str:
