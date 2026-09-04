@@ -179,45 +179,42 @@ Instructions:
             try:
                 client = Groq(api_key=api_key)
 
-                # Dynamically discover active models from user's account
-                try:
-                    all_models = [m.id for m in client.models.list().data if getattr(m, 'active', True)]
-                except Exception:
-                    all_models = []
-
-                # Prioritize large 128k context models on Groq
-                selected_model = None
-                for candidate in [
-                    "llama-3.3-70b-versatile",
-                    "llama-3.1-70b-versatile",
-                    "llama-3.1-8b-instant",
-                    "gemma2-9b-it",
-                    "llama3-70b-8192",
-                    "llama3-8b-8192"
-                ]:
-                    if candidate in all_models:
-                        selected_model = candidate
-                        break
-
-                if not selected_model:
-                    # Fallback to any 70b, llama, or first available active model
-                    llama_models = [m for m in all_models if "70b" in m.lower() or "llama" in m.lower() or "gemma" in m.lower()]
-                    selected_model = llama_models[0] if llama_models else (all_models[0] if all_models else "llama-3.3-70b-versatile")
-
-                response = client.chat.completions.create(
-                    model=selected_model,
-                    messages=[
-                        {"role": "system", "content": "You are a precise AI document assistant."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.2,
-                    max_tokens=600,
-                    stream=True
-                )
-                for chunk in response:
-                    content = chunk.choices[0].delta.content
-                    if content:
-                        yield content
+                # Preferred 128k context models on Groq
+                for model_id in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it"]:
+                    try:
+                        response = client.chat.completions.create(
+                            model=model_id,
+                            messages=[
+                                {"role": "system", "content": "You are a precise AI document assistant."},
+                                {"role": "user", "content": prompt}
+                            ],
+                            temperature=0.2,
+                            stream=True
+                        )
+                        for chunk in response:
+                            content = chunk.choices[0].delta.content
+                            if content:
+                                yield content
+                        return
+                    except Exception as model_err:
+                        if "401" in str(model_err) or "invalid_api_key" in str(model_err):
+                            raise model_err
+                        continue
+                raise Exception("Could not complete request with available Groq models.")
+            except Exception as e:
+                err_str = str(e)
+                if "401" in err_str or "invalid_api_key" in err_str:
+                    masked_key = f"{api_key[:6]}...{api_key[-4:]}" if len(api_key) > 10 else f"`{api_key}` (Too short)"
+                    yield (
+                        f"🔑 **Groq API Authentication Error (401)**\n\n"
+                        f"- **Key Received:** `{masked_key}` (Length: {len(api_key)} chars)\n\n"
+                        "The key was rejected by Groq. Please make sure:\n"
+                        "1. Go to **[console.groq.com/keys](https://console.groq.com/keys)**\n"
+                        "2. Click **Create API Key** and copy the **entire key** immediately.\n"
+                        "3. Paste it directly into the **`🔑 Cloud API Key`** box in the sidebar without spaces."
+                    )
+                else:
+                    yield f"⚠️ **Groq API Error:** `{err_str}`"
                 return
             except Exception as e:
                 err_str = str(e)
