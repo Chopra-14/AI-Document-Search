@@ -187,22 +187,23 @@ Instructions:
                     all_models = []
 
                 # Select best available model dynamically
+                # Select best available large-context model dynamically
                 selected_model = None
                 for candidate in [
                     "llama-3.3-70b-versatile",
                     "llama-3.1-70b-versatile",
-                    "llama-3.2-3b-preview",
-                    "llama-3.2-1b-preview",
+                    "llama3-8b-8192",
                     "gemma2-9b-it",
-                    "llama3-8b-8192"
+                    "deepseek-r1-distill-llama-70b"
                 ]:
                     if candidate in all_models:
                         selected_model = candidate
                         break
 
                 if not selected_model:
-                    llama_models = [m for m in all_models if "llama" in m.lower() or "gemma" in m.lower()]
-                    selected_model = llama_models[0] if llama_models else (all_models[0] if all_models else "llama-3.3-70b-versatile")
+                    # Filter out tiny 1b/3b preview models that have 2k context limits
+                    large_models = [m for m in all_models if ("llama-3.3" in m or "llama-3.1" in m or "8b" in m or "gemma" in m) and "1b" not in m and "3b" not in m]
+                    selected_model = large_models[0] if large_models else (all_models[0] if all_models else "llama-3.3-70b-versatile")
 
                 response = client.chat.completions.create(
                     model=selected_model,
