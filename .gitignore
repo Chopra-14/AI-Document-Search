@@ -1,0 +1,31 @@
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ChromaDB local vector storage
+chroma_db/
+
+# Local chat session history
+data/chat_history/
+
+# Environment and secrets
+.env
+.env.local
+
+# IDE / Editor artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
