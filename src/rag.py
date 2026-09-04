@@ -179,9 +179,36 @@ Instructions:
             try:
                 client = Groq(api_key=api_key)
                 
-                # Call official Groq Llama 3.3 70B model directly
+                # Fetch live models list directly from Groq for this account
+                available_models = []
+                try:
+                    for m in client.models.list().data:
+                        m_id = getattr(m, 'id', '')
+                        if m_id and not any(x in m_id.lower() for x in ['whisper', 'guard', 'embed', 'tts', 'moderation']):
+                            available_models.append(m_id)
+                except Exception:
+                    available_models = []
+
+                # Select best available model from Groq's active list
+                chosen_model = None
+                for preference in [
+                    "llama-3.3-70b-versatile",
+                    "llama-3.1-70b-versatile",
+                    "llama-3.1-8b-instant",
+                    "llama3-70b-8192",
+                    "gemma2-9b-it",
+                    "qwen/qwen-2.5-32b",
+                    "deepseek-r1-distill-llama-70b"
+                ]:
+                    if preference in available_models:
+                        chosen_model = preference
+                        break
+
+                if not chosen_model:
+                    chosen_model = available_models[0] if available_models else "llama-3.1-70b-versatile"
+
                 stream = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
+                    model=chosen_model,
                     messages=[
                         {"role": "user", "content": prompt}
                     ],
