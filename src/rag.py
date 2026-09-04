@@ -147,6 +147,12 @@ Instructions:
 
 --- Detailed Answer ---"""
 
+    # Sanitize Groq API Key
+    if groq_api_key:
+        groq_api_key = str(groq_api_key).strip().strip("'\"")
+        if not groq_api_key or len(groq_api_key) < 5:
+            groq_api_key = None
+
     def stream_generator():
         # 1. Try Groq Cloud API if key is provided
         if groq_api_key and Groq:
@@ -168,9 +174,21 @@ Instructions:
                         yield content
                 return
             except Exception as e:
-                yield f"⚠️ Groq API Error: {str(e)}\n\nFalling back to local Ollama..."
+                err_msg = str(e)
+                if "401" in err_msg or "invalid_api_key" in err_msg:
+                    yield (
+                        "🔑 **Invalid Groq API Key (401 Error)**\n\n"
+                        "The Groq API key provided was not recognized.\n\n"
+                        "**How to get a free working key:**\n"
+                        "1. Open [console.groq.com/keys](https://console.groq.com/keys)\n"
+                        "2. Click **Create API Key** and copy the full key (starts with `gsk_...`)\n"
+                        "3. Paste it into the **🔑 Groq API Key** box in the sidebar!"
+                    )
+                else:
+                    yield f"⚠️ **Groq API Error:** {err_msg}"
+                return
 
-        # 2. Try Local Ollama
+        # 2. Try Local Ollama (when running locally without Groq key)
         try:
             stream = ollama.generate(
                 model="llama3.2",
@@ -189,9 +207,9 @@ Instructions:
             yield (
                 f"⚠️ **Could not connect to local Ollama:** `{str(e)}`\n\n"
                 "**Deploying on Streamlit Cloud?**\n"
-                "Streamlit Cloud does not have local Ollama installed. To enable instant AI answers on the cloud:\n"
-                "1. Get a **Free Groq API Key** in 30 seconds from [console.groq.com](https://console.groq.com/keys).\n"
-                "2. Enter your Groq API Key in the **Sidebar Settings** or in Streamlit Cloud Secrets (`GROQ_API_KEY`)."
+                "Streamlit Cloud does not have local Ollama installed. To enable instant AI answers on the cloud:\n\n"
+                "1. Get a **Free Groq API Key** in 30 seconds from [console.groq.com/keys](https://console.groq.com/keys).\n"
+                "2. Paste your key (starts with `gsk_...`) in the **Sidebar Settings**!"
             )
 
     return stream_generator(), sources
