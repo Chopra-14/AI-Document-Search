@@ -177,8 +177,8 @@ Instructions:
 
         # Case 2: Groq Cloud API (Key starts with gsk_...)
         if api_key and Groq:
-            # Try multiple model variants in case of tier quotas
-            models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192", "mixtral-8x7b-32768"]
+            # Active, official Groq models
+            models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
             last_err = None
             for model_id in models_to_try:
                 try:
@@ -201,7 +201,6 @@ Instructions:
                 except Exception as e:
                     last_err = e
                     if "401" in str(e) or "invalid_api_key" in str(e):
-                        # Stop immediately on bad authentication
                         break
                     continue
 
